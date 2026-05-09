@@ -44,22 +44,47 @@ ligas = {
 }
 
 def calcular_lambda(equipo_local, equipo_visitante, liga_key):
-    df = df_partidos[df_partidos["liga"] == liga_key]
+    df = df_partidos[df_partidos["liga"] == liga_key].copy()
+    df["fecha"] = pd.to_datetime(df["fecha"])
+    df = df.sort_values("fecha")
+    
     promedio_goles_liga = df["goles_local"].mean()
 
-    # Fuerza atacante y defensiva del local
-    partidos_local = df[df["local"] == equipo_local]
+    # Últimos 10 partidos del local (de local)
+    partidos_local = df[df["local"] == equipo_local].tail(10)
+    
+    # Últimos 10 partidos del visitante (de visitante)
+    partidos_visit = df[df["visitante"] == equipo_visitante].tail(10)
+    
+    # Si no hay suficientes partidos recientes usamos todos
+    if len(partidos_local) < 3:
+        partidos_local = df[df["local"] == equipo_local]
+    if len(partidos_visit) < 3:
+        partidos_visit = df[df["visitante"] == equipo_visitante]
+
+    # Fuerza atacante y defensiva con datos recientes
     ataque_local = partidos_local["goles_local"].mean() / promedio_goles_liga if len(partidos_local) > 0 else 1.0
     defensa_local = partidos_local["goles_visitante"].mean() / promedio_goles_liga if len(partidos_local) > 0 else 1.0
-
-    # Fuerza atacante y defensiva del visitante
-    partidos_visit = df[df["visitante"] == equipo_visitante]
     ataque_visit = partidos_visit["goles_visitante"].mean() / promedio_goles_liga if len(partidos_visit) > 0 else 1.0
     defensa_visit = partidos_visit["goles_local"].mean() / promedio_goles_liga if len(partidos_visit) > 0 else 1.0
 
-    # Lambda esperado de goles
-    lambda_local = ataque_local * defensa_visit * promedio_goles_liga * 1.1  # ventaja local
-    lambda_visit = ataque_visit * defensa_local * promedio_goles_liga
+    # Ponderamos forma reciente vs histórico (70% reciente, 30% histórico)
+    hist_local = df[df["local"] == equipo_local]
+    hist_visit = df[df["visitante"] == equipo_visitante]
+    
+    ataque_local_hist = hist_local["goles_local"].mean() / promedio_goles_liga if len(hist_local) > 0 else 1.0
+    defensa_local_hist = hist_local["goles_visitante"].mean() / promedio_goles_liga if len(hist_local) > 0 else 1.0
+    ataque_visit_hist = hist_visit["goles_visitante"].mean() / promedio_goles_liga if len(hist_visit) > 0 else 1.0
+    defensa_visit_hist = hist_visit["goles_local"].mean() / promedio_goles_liga if len(hist_visit) > 0 else 1.0
+
+    ataque_local_final = 0.7 * ataque_local + 0.3 * ataque_local_hist
+    defensa_local_final = 0.7 * defensa_local + 0.3 * defensa_local_hist
+    ataque_visit_final = 0.7 * ataque_visit + 0.3 * ataque_visit_hist
+    defensa_visit_final = 0.7 * defensa_visit + 0.3 * defensa_visit_hist
+
+    # Lambda final
+    lambda_local = ataque_local_final * defensa_visit_final * promedio_goles_liga * 1.1
+    lambda_visit = ataque_visit_final * defensa_local_final * promedio_goles_liga
 
     return round(lambda_local, 2), round(lambda_visit, 2)
 
