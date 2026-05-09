@@ -5,14 +5,20 @@ API_KEY = "6995e5f307174fc7909a551bf2394bf0"  # ← tu clave
 
 headers = {"X-Auth-Token": API_KEY}
 
-def obtener_partidos(temporada):
-    url = f"https://api.football-data.org/v4/competitions/PL/matches?season={temporada}&status=FINISHED"
+# Códigos de ligas en football-data.org
+LIGAS = {
+    "PL": "Premier League",
+    "CL": "Champions League", 
+    "PD": "La Liga",
+}
+
+def obtener_partidos(liga_codigo, temporada):
+    url = f"https://api.football-data.org/v4/competitions/{liga_codigo}/matches?season={temporada}&status=FINISHED"
     r = requests.get(url, headers=headers)
     datos = r.json()
 
-    # Verificamos qué nos devuelve la API
     if "matches" not in datos:
-        print(f"⚠️ Error en temporada {temporada}:", datos)
+        print(f"  ⚠️ Sin datos: {datos.get('message', 'error desconocido')}")
         return []
 
     partidos = []
@@ -22,6 +28,7 @@ def obtener_partidos(temporada):
         if goles_l is None or goles_v is None:
             continue
         partidos.append({
+            "liga": LIGAS[liga_codigo],
             "fecha": p["utcDate"][:10],
             "local": p["homeTeam"]["name"],
             "visitante": p["awayTeam"]["name"],
@@ -31,16 +38,17 @@ def obtener_partidos(temporada):
         })
     return partidos
 
-# Descargamos temporadas
+# Descargamos todas las ligas y temporadas
 todos = []
-for temporada in [2022, 2023, 2024]:
-    print(f"Descargando temporada {temporada}...")
-    partidos = obtener_partidos(temporada)
-    print(f"   → {len(partidos)} partidos obtenidos")
-    todos += partidos
+for codigo, nombre in LIGAS.items():
+    for temporada in [2022, 2023, 2024]:
+        print(f"Descargando {nombre} - Temporada {temporada}...")
+        partidos = obtener_partidos(codigo, temporada)
+        print(f"  → {len(partidos)} partidos obtenidos")
+        todos += partidos
 
 # Guardamos
 df = pd.DataFrame(todos)
 df.to_csv("partidos.csv", index=False)
-print(f"\n✅ Listo! Se guardaron {len(df)} partidos en partidos.csv")
-print(df.head(10))
+print(f"\n✅ Total: {len(df)} partidos guardados en partidos.csv")
+print(df.groupby("liga").size())
