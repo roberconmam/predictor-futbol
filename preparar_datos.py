@@ -41,7 +41,7 @@ def obtener_partidos(liga_codigo, temporada):
 # Descargamos todas las ligas y temporadas
 todos = []
 for codigo, nombre in LIGAS.items():
-    for temporada in [2022, 2023, 2024]:
+    for temporada in [2020, 2021, 2022, 2023, 2024]:
         print(f"Descargando {nombre} - Temporada {temporada}...")
         partidos = obtener_partidos(codigo, temporada)
         print(f"  → {len(partidos)} partidos obtenidos")

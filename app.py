@@ -2,34 +2,45 @@ import streamlit as st
 import pickle
 import numpy as np
 
-modelo = pickle.load(open("modelo.pkl", "rb"))
+modelos_por_liga = pickle.load(open("modelo.pkl", "rb"))
 equipo_id = pickle.load(open("equipos.pkl", "rb"))
 
-# Separamos equipos por liga
 ligas = {
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": [
-        "Arsenal FC", "Chelsea FC", "Liverpool FC", "Manchester City FC",
-        "Manchester United FC", "Tottenham Hotspur FC", "Newcastle United FC",
-        "Aston Villa FC", "Brighton & Hove Albion FC", "West Ham United FC",
-        "Brentford FC", "Fulham FC", "Everton FC", "AFC Bournemouth",
-        "Nottingham Forest FC", "Wolverhampton Wanderers FC", "Crystal Palace FC",
-        "Sunderland AFC", "Leeds United FC", "Burnley FC"
-    ],
-    "🇪🇸 La Liga": [
-        "FC Barcelona", "Real Madrid CF", "Club Atlético de Madrid",
-        "Real Sociedad de Fútbol", "Athletic Club", "Villarreal CF",
-        "RC Celta de Vigo", "Sevilla FC", "Valencia CF", "Real Betis Balompié",
-        "Getafe CF", "Deportivo Alavés", "Rayo Vallecano de Madrid",
-        "UD Las Palmas", "CA Osasuna", "Girona FC", "RCD Mallorca",
-        "RCD Espanyol de Barcelona", "Elche CF", "Cádiz CF"
-    ],
-    "🇪🇺 Champions League": [
-        "FC Barcelona", "Real Madrid CF", "Manchester City FC", "Liverpool FC",
-        "Bayern München", "Paris Saint-Germain FC", "Juventus FC", "Chelsea FC",
-        "Borussia Dortmund", "Club Atlético de Madrid", "Arsenal FC",
-        "Inter Milan", "AC Milan", "AFC Ajax", "FC Porto",
-        "SL Benfica", "Sporting CP", "SSC Napoli", "RB Leipzig", "FC Red Bull Salzburg"
-    ]
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": {
+        "key": "Premier League",
+        "precision": 49.3,
+        "equipos": [
+            "Arsenal FC", "Chelsea FC", "Liverpool FC", "Manchester City FC",
+            "Manchester United FC", "Tottenham Hotspur FC", "Newcastle United FC",
+            "Aston Villa FC", "Brighton & Hove Albion FC", "West Ham United FC",
+            "Brentford FC", "Fulham FC", "Everton FC", "AFC Bournemouth",
+            "Nottingham Forest FC", "Wolverhampton Wanderers FC", "Crystal Palace FC",
+            "Sunderland AFC", "Leeds United FC", "Burnley FC"
+        ]
+    },
+    "🇪🇸 La Liga": {
+        "key": "La Liga",
+        "precision": 43.4,
+        "equipos": [
+            "FC Barcelona", "Real Madrid CF", "Club Atlético de Madrid",
+            "Real Sociedad de Fútbol", "Athletic Club", "Villarreal CF",
+            "RC Celta de Vigo", "Sevilla FC", "Valencia CF", "Real Betis Balompié",
+            "Getafe CF", "Deportivo Alavés", "Rayo Vallecano de Madrid",
+            "UD Las Palmas", "CA Osasuna", "Girona FC", "RCD Mallorca",
+            "RCD Espanyol de Barcelona", "Elche CF", "Cádiz CF"
+        ]
+    },
+    "🇪🇺 Champions League": {
+        "key": "Champions League",
+        "precision": 50.8,
+        "equipos": [
+            "FC Barcelona", "Real Madrid CF", "Manchester City FC", "Liverpool FC",
+            "Bayern München", "Paris Saint-Germain FC", "Juventus FC", "Chelsea FC",
+            "Borussia Dortmund", "Club Atlético de Madrid", "Arsenal FC",
+            "Inter Milan", "AC Milan", "AFC Ajax", "FC Porto",
+            "SL Benfica", "Sporting CP", "SSC Napoli", "RB Leipzig", "FC Red Bull Salzburg"
+        ]
+    }
 }
 
 st.set_page_config(page_title="Predictor de Fútbol", page_icon="⚽", layout="centered")
@@ -40,6 +51,7 @@ st.markdown("""
 .subtitulo { text-align: center; color: gray; margin-bottom: 20px; }
 .resultado { text-align: center; font-size: 1.8em; font-weight: bold; padding: 15px;
              border-radius: 10px; background-color: #38003c; color: white; }
+.precision { text-align: center; font-size: 0.9em; color: #4CAF50; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,10 +61,15 @@ st.divider()
 
 # Selector de liga
 liga_seleccionada = st.selectbox("🏆 Selecciona la Liga", list(ligas.keys()))
-equipos_liga = sorted([e for e in ligas[liga_seleccionada] if e in equipo_id])
+info_liga = ligas[liga_seleccionada]
+equipos_liga = sorted([e for e in info_liga["equipos"] if e in equipo_id])
+
+st.markdown(f'<div class="precision">🎯 Precisión del modelo para esta liga: {info_liga["precision"]}%</div>',
+            unsafe_allow_html=True)
+st.divider()
 
 if len(equipos_liga) < 2:
-    st.warning("⚠️ Pocos equipos disponibles para esta liga en el modelo.")
+    st.warning("⚠️ Pocos equipos disponibles para esta liga.")
 else:
     col1, col2 = st.columns(2)
     with col1:
@@ -68,9 +85,10 @@ else:
         if equipo_local == equipo_visitante:
             st.warning("⚠️ Elige dos equipos diferentes")
         else:
+            modelo = modelos_por_liga[info_liga["key"]]
             local_id = equipo_id[equipo_local]
             visitante_id = equipo_id[equipo_visitante]
-            X = np.array([[local_id, visitante_id, 1.5, 1.2, 1.5, 1.0, 1.2, 1.0, 0.5, 0.4]])
+            X = np.array([[local_id, visitante_id, 1.5, 1.2, 1.5, 1.0, 1.2, 1.0, 0.5, 0.4, 0.2, 0.2, 1.0, 0.5]])
 
             probs = modelo.predict_proba(X)[0]
             clases = modelo.classes_
