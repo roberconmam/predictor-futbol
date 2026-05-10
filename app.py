@@ -43,6 +43,14 @@ ligas = {
     }
 }
 
+# Factores de ajuste
+AJUSTES_BAJAS = {"Ninguna baja": 1.0, "1 titular fuera": 0.90, "2+ titulares fuera": 0.78}
+AJUSTES_DESCANSO = {"7+ días": 1.05, "4-6 días": 1.0, "1-3 días": 0.90}
+AJUSTES_ANIMO = {"Muy bien 🔥": 1.10, "Normal": 1.0, "Mal 😞": 0.88}
+AJUSTES_IMPORTANCIA = {"Final / Derby": 0.92, "Partido importante": 0.96, "Normal": 1.0}
+AJUSTES_CLIMA = {"Bueno ☀️": 1.0, "Lluvia 🌧️": 0.93, "Viento fuerte 💨": 0.95}
+AJUSTES_ESTADIO = {"Estadio lleno 🏟️": 1.08, "Medio lleno": 1.03, "Vacío": 0.97}
+
 def calcular_lambda(equipo_local, equipo_visitante, liga_key):
     df = df_partidos[df_partidos["liga"] == liga_key].copy()
     df["fecha"] = pd.to_datetime(df["fecha"])
@@ -72,18 +80,32 @@ def calcular_lambda(equipo_local, equipo_visitante, liga_key):
 
     return round(lambda_local, 2), round(lambda_visit, 2)
 
+def aplicar_ajustes(lambda_l, lambda_v, ajustes):
+    # Ajustes al local
+    lambda_l *= ajustes["bajas_local"]
+    lambda_l *= ajustes["descanso_local"]
+    lambda_l *= ajustes["animo_local"]
+    lambda_l *= ajustes["estadio"]
+    lambda_l *= ajustes["importancia"]
+    lambda_l *= ajustes["clima"]
+
+    # Ajustes al visitante
+    lambda_v *= ajustes["bajas_visit"]
+    lambda_v *= ajustes["descanso_visit"]
+    lambda_v *= ajustes["animo_visit"]
+    lambda_v *= ajustes["importancia"]
+    lambda_v *= ajustes["clima"]
+
+    return round(lambda_l, 2), round(lambda_v, 2)
+
 def calcular_todo(lambda_local, lambda_visit, max_goles=6):
-    # Matriz de probabilidades de marcadores
     matriz = np.zeros((max_goles+1, max_goles+1))
     for i in range(max_goles+1):
         for j in range(max_goles+1):
             matriz[i][j] = poisson.pmf(i, lambda_local) * poisson.pmf(j, lambda_visit)
-
-    # Probabilidades de resultado desde la misma matriz
-    prob_local = np.sum(np.tril(matriz, -1))    # goles_local > goles_visit
-    prob_empate = np.sum(np.diag(matriz))        # goles_local == goles_visit
-    prob_visit = np.sum(np.triu(matriz, 1))      # goles_visit > goles_local
-
+    prob_local = np.sum(np.tril(matriz, -1))
+    prob_empate = np.sum(np.diag(matriz))
+    prob_visit = np.sum(np.triu(matriz, 1))
     return matriz, prob_local, prob_empate, prob_visit
 
 # UI
@@ -95,6 +117,7 @@ st.markdown("""
 .resultado { text-align: center; font-size: 1.8em; font-weight: bold; padding: 15px;
              border-radius: 10px; background-color: #38003c; color: white; }
 .precision { text-align: center; font-size: 0.9em; color: #4CAF50; }
+.ajuste-box { background: #1a1a2e; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,8 +128,7 @@ st.divider()
 liga_seleccionada = st.selectbox("🏆 Selecciona la Liga", list(ligas.keys()))
 info_liga = ligas[liga_seleccionada]
 equipos_liga = sorted([e for e in info_liga["equipos"] if e in equipo_id])
-
-st.markdown(f'<div class="precision">🎯 Precisión del modelo: {info_liga["precision"]}%</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="precision">🎯 Precisión base del modelo: {info_liga["precision"]}%</div>', unsafe_allow_html=True)
 st.divider()
 
 col1, col2 = st.columns(2)
@@ -119,12 +141,56 @@ with col2:
 
 st.divider()
 
+# Variables manuales
+with st.expander("⚙️ Ajustes del partido (opcional)", expanded=False):
+    st.markdown("#### 🏠 Equipo Local")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        bajas_local = st.selectbox("🤕 Bajas", list(AJUSTES_BAJAS.keys()), key="bl")
+    with col2:
+        descanso_local = st.selectbox("📅 Descanso", list(AJUSTES_DESCANSO.keys()), key="dl")
+    with col3:
+        animo_local = st.selectbox("📈 Ánimo", list(AJUSTES_ANIMO.keys()), key="al")
+
+    st.markdown("#### ✈️ Equipo Visitante")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        bajas_visit = st.selectbox("🤕 Bajas", list(AJUSTES_BAJAS.keys()), key="bv")
+    with col2:
+        descanso_visit = st.selectbox("📅 Descanso", list(AJUSTES_DESCANSO.keys()), key="dv")
+    with col3:
+        animo_visit = st.selectbox("📈 Ánimo", list(AJUSTES_ANIMO.keys()), key="av")
+
+    st.markdown("#### 🌍 Condiciones del Partido")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        clima = st.selectbox("🌤️ Clima", list(AJUSTES_CLIMA.keys()), key="cl")
+    with col2:
+        estadio = st.selectbox("🏟️ Estadio", list(AJUSTES_ESTADIO.keys()), key="est")
+    with col3:
+        importancia = st.selectbox("🏆 Importancia", list(AJUSTES_IMPORTANCIA.keys()), key="imp")
+
+st.divider()
+
 tab1, tab2 = st.tabs(["🔮 Predecir Resultado", "⚽ Predecir Marcador"])
 
-# Calculamos todo de una vez con Poisson
 if equipo_local != equipo_visitante:
     lambda_l, lambda_v = calcular_lambda(equipo_local, equipo_visitante, info_liga["key"])
-    matriz, prob_l, prob_e, prob_v = calcular_todo(lambda_l, lambda_v)
+
+    # Aplicamos ajustes manuales
+    ajustes = {
+        "bajas_local": AJUSTES_BAJAS[bajas_local],
+        "descanso_local": AJUSTES_DESCANSO[descanso_local],
+        "animo_local": AJUSTES_ANIMO[animo_local],
+        "bajas_visit": AJUSTES_BAJAS[bajas_visit],
+        "descanso_visit": AJUSTES_DESCANSO[descanso_visit],
+        "animo_visit": AJUSTES_ANIMO[animo_visit],
+        "clima": AJUSTES_CLIMA[clima],
+        "estadio": AJUSTES_ESTADIO[estadio],
+        "importancia": AJUSTES_IMPORTANCIA[importancia],
+    }
+    lambda_l_aj, lambda_v_aj = aplicar_ajustes(lambda_l, lambda_v, ajustes)
+    matriz, prob_l, prob_e, prob_v = calcular_todo(lambda_l_aj, lambda_v_aj)
 
     with tab1:
         if st.button("🔮 Predecir Resultado", use_container_width=True, type="primary"):
@@ -148,7 +214,11 @@ if equipo_local != equipo_visitante:
             with col3:
                 st.metric(f"✈️ {equipo_visitante[:12]}", f"{prob_v*100:.1f}%")
                 st.progress(float(prob_v))
-            st.caption("⚠️ Predicción basada en modelo Poisson con estadísticas históricas.")
+
+            # Mostramos si hubo ajustes
+            if any(v != 1.0 for v in ajustes.values()):
+                st.info(f"⚙️ Goles base: {lambda_l:.2f} vs {lambda_v:.2f} → Ajustados: {lambda_l_aj:.2f} vs {lambda_v_aj:.2f}")
+            st.caption("⚠️ Predicción basada en modelo Poisson con ajustes manuales.")
 
     with tab2:
         if st.button("⚽ Predecir Marcador", use_container_width=True, type="primary", key="btn_marcador"):
@@ -166,14 +236,15 @@ if equipo_local != equipo_visitante:
 
             col1, col2 = st.columns(2)
             with col1:
-                st.metric(f"⚽ Goles esperados {equipo_local[:10]}", f"{lambda_l:.2f}")
+                st.metric(f"⚽ Goles esperados {equipo_local[:10]}", f"{lambda_l_aj:.2f}")
             with col2:
-                st.metric(f"⚽ Goles esperados {equipo_visitante[:10]}", f"{lambda_v:.2f}")
+                st.metric(f"⚽ Goles esperados {equipo_visitante[:10]}", f"{lambda_v_aj:.2f}")
+
+            if any(v != 1.0 for v in ajustes.values()):
+                st.info(f"⚙️ Sin ajustes: {lambda_l:.2f} vs {lambda_v:.2f} → Con ajustes: {lambda_l_aj:.2f} vs {lambda_v_aj:.2f}")
 
             st.divider()
-
-            # Consistencia con resultado
-            st.markdown("### 🔗 Consistencia con resultado")
+            st.markdown("### 🔗 Probabilidades de resultado")
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric(f"🏠 {equipo_local[:12]}", f"{prob_l*100:.1f}%")
@@ -193,8 +264,7 @@ if equipo_local != equipo_visitante:
             for k, r in enumerate(top5):
                 medallas = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
                 st.markdown(f"{medallas[k]} **{r['Marcador']}** — {r['Probabilidad']}")
-
-            st.caption("⚠️ Basado en modelo de Poisson con estadísticas históricas.")
+            st.caption("⚠️ Basado en modelo Poisson con ajustes manuales.")
 else:
     with tab1:
         st.warning("⚠️ Elige dos equipos diferentes")
