@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import poisson
+from skill_noticias import buscar_noticias_equipo, obtener_links_noticias
 
 modelos_por_liga = pickle.load(open("modelo.pkl", "rb"))
 equipo_id = pickle.load(open("equipos.pkl", "rb"))
@@ -43,7 +44,6 @@ ligas = {
     }
 }
 
-# Factores de ajuste
 AJUSTES_BAJAS = {"Ninguna baja": 1.0, "1 titular fuera": 0.90, "2+ titulares fuera": 0.78}
 AJUSTES_DESCANSO = {"7+ días": 1.05, "4-6 días": 1.0, "1-3 días": 0.90}
 AJUSTES_ANIMO = {"Muy bien 🔥": 1.10, "Normal": 1.0, "Mal 😞": 0.88}
@@ -56,46 +56,27 @@ def calcular_lambda(equipo_local, equipo_visitante, liga_key):
     df["fecha"] = pd.to_datetime(df["fecha"])
     df = df.sort_values("fecha")
     promedio_goles_liga = df["goles_local"].mean()
-
     partidos_local = df[df["local"] == equipo_local].tail(10)
     partidos_visit = df[df["visitante"] == equipo_visitante].tail(10)
     if len(partidos_local) < 3:
         partidos_local = df[df["local"] == equipo_local]
     if len(partidos_visit) < 3:
         partidos_visit = df[df["visitante"] == equipo_visitante]
-
     hist_local = df[df["local"] == equipo_local]
     hist_visit = df[df["visitante"] == equipo_visitante]
-
     def safe_mean(series, fallback=1.0):
         return series.mean() if len(series) > 0 else fallback
-
     ataque_local = (0.7 * safe_mean(partidos_local["goles_local"]) + 0.3 * safe_mean(hist_local["goles_local"])) / promedio_goles_liga
     defensa_local = (0.7 * safe_mean(partidos_local["goles_visitante"]) + 0.3 * safe_mean(hist_local["goles_visitante"])) / promedio_goles_liga
     ataque_visit = (0.7 * safe_mean(partidos_visit["goles_visitante"]) + 0.3 * safe_mean(hist_visit["goles_visitante"])) / promedio_goles_liga
     defensa_visit = (0.7 * safe_mean(partidos_visit["goles_local"]) + 0.3 * safe_mean(hist_visit["goles_local"])) / promedio_goles_liga
-
     lambda_local = ataque_local * defensa_visit * promedio_goles_liga * 1.1
     lambda_visit = ataque_visit * defensa_local * promedio_goles_liga
-
     return round(lambda_local, 2), round(lambda_visit, 2)
 
 def aplicar_ajustes(lambda_l, lambda_v, ajustes):
-    # Ajustes al local
-    lambda_l *= ajustes["bajas_local"]
-    lambda_l *= ajustes["descanso_local"]
-    lambda_l *= ajustes["animo_local"]
-    lambda_l *= ajustes["estadio"]
-    lambda_l *= ajustes["importancia"]
-    lambda_l *= ajustes["clima"]
-
-    # Ajustes al visitante
-    lambda_v *= ajustes["bajas_visit"]
-    lambda_v *= ajustes["descanso_visit"]
-    lambda_v *= ajustes["animo_visit"]
-    lambda_v *= ajustes["importancia"]
-    lambda_v *= ajustes["clima"]
-
+    lambda_l *= ajustes["bajas_local"] * ajustes["descanso_local"] * ajustes["animo_local"] * ajustes["estadio"] * ajustes["importancia"] * ajustes["clima"]
+    lambda_v *= ajustes["bajas_visit"] * ajustes["descanso_visit"] * ajustes["animo_visit"] * ajustes["importancia"] * ajustes["clima"]
     return round(lambda_l, 2), round(lambda_v, 2)
 
 def calcular_todo(lambda_local, lambda_visit, max_goles=6):
@@ -108,7 +89,6 @@ def calcular_todo(lambda_local, lambda_visit, max_goles=6):
     prob_visit = np.sum(np.triu(matriz, 1))
     return matriz, prob_local, prob_empate, prob_visit
 
-# UI
 st.set_page_config(page_title="Predictor de Fútbol", page_icon="⚽", layout="centered")
 st.markdown("""
 <style>
@@ -117,7 +97,6 @@ st.markdown("""
 .resultado { text-align: center; font-size: 1.8em; font-weight: bold; padding: 15px;
              border-radius: 10px; background-color: #38003c; color: white; }
 .precision { text-align: center; font-size: 0.9em; color: #4CAF50; }
-.ajuste-box { background: #1a1a2e; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -141,8 +120,31 @@ with col2:
 
 st.divider()
 
-# Variables manuales
-with st.expander("⚙️ Ajustes del partido (opcional)", expanded=False):
+# Botón de noticias
+if st.button("📰 Ver Noticias y Lesionados", use_container_width=True):
+    if equipo_local == equipo_visitante:
+        st.warning("⚠️ Elige dos equipos diferentes")
+    else:
+        info_l = obtener_links_noticias(equipo_local)
+        info_v = obtener_links_noticias(equipo_visitante)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"#### 🏠 {equipo_local}")
+            st.markdown("**🔍 Consulta noticias aquí:**")
+            for nombre, url in info_l["urls"].items():
+                st.markdown(f"[{nombre}]({url})")
+
+        with col2:
+            st.markdown(f"#### ✈️ {equipo_visitante}")
+            st.markdown("**🔍 Consulta noticias aquí:**")
+            for nombre, url in info_v["urls"].items():
+                st.markdown(f"[{nombre}]({url})")
+
+        st.info("💡 Después de revisar las noticias, usa los ajustes manuales de abajo para indicar las bajas.")
+
+# Ajustes manuales
+with st.expander("⚙️ Ajustes manuales del partido (opcional)", expanded=False):
     st.markdown("#### 🏠 Equipo Local")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -176,8 +178,6 @@ tab1, tab2 = st.tabs(["🔮 Predecir Resultado", "⚽ Predecir Marcador"])
 
 if equipo_local != equipo_visitante:
     lambda_l, lambda_v = calcular_lambda(equipo_local, equipo_visitante, info_liga["key"])
-
-    # Aplicamos ajustes manuales
     ajustes = {
         "bajas_local": AJUSTES_BAJAS[bajas_local],
         "descanso_local": AJUSTES_DESCANSO[descanso_local],
@@ -194,13 +194,7 @@ if equipo_local != equipo_visitante:
 
     with tab1:
         if st.button("🔮 Predecir Resultado", use_container_width=True, type="primary"):
-            if prob_l > prob_v and prob_l > prob_e:
-                ganador = f"🏆 Gana {equipo_local}"
-            elif prob_v > prob_l and prob_v > prob_e:
-                ganador = f"🏆 Gana {equipo_visitante}"
-            else:
-                ganador = "🤝 Empate"
-
+            ganador = f"🏆 Gana {equipo_local}" if prob_l > prob_v and prob_l > prob_e else f"🏆 Gana {equipo_visitante}" if prob_v > prob_l and prob_v > prob_e else "🤝 Empate"
             st.markdown(f'<div class="resultado">{ganador}</div>', unsafe_allow_html=True)
             st.divider()
             st.markdown("### 📊 Probabilidades")
@@ -214,17 +208,14 @@ if equipo_local != equipo_visitante:
             with col3:
                 st.metric(f"✈️ {equipo_visitante[:12]}", f"{prob_v*100:.1f}%")
                 st.progress(float(prob_v))
-
-            # Mostramos si hubo ajustes
             if any(v != 1.0 for v in ajustes.values()):
                 st.info(f"⚙️ Goles base: {lambda_l:.2f} vs {lambda_v:.2f} → Ajustados: {lambda_l_aj:.2f} vs {lambda_v_aj:.2f}")
-            st.caption("⚠️ Predicción basada en modelo Poisson con ajustes manuales.")
+            st.caption("⚠️ Predicción basada en modelo Poisson con ajustes.")
 
     with tab2:
         if st.button("⚽ Predecir Marcador", use_container_width=True, type="primary", key="btn_marcador"):
             idx = np.unravel_index(matriz.argmax(), matriz.shape)
             goles_l, goles_v = idx[0], idx[1]
-
             st.markdown(f"""
             <div style='text-align:center; background:#1a1a2e; padding:20px; border-radius:12px; margin-bottom:20px'>
                 <div style='color:gray; font-size:0.9em'>Marcador más probable</div>
@@ -233,16 +224,11 @@ if equipo_local != equipo_visitante:
                 <div style='color:#4CAF50'>Probabilidad: {matriz[goles_l][goles_v]*100:.1f}%</div>
             </div>
             """, unsafe_allow_html=True)
-
             col1, col2 = st.columns(2)
             with col1:
                 st.metric(f"⚽ Goles esperados {equipo_local[:10]}", f"{lambda_l_aj:.2f}")
             with col2:
                 st.metric(f"⚽ Goles esperados {equipo_visitante[:10]}", f"{lambda_v_aj:.2f}")
-
-            if any(v != 1.0 for v in ajustes.values()):
-                st.info(f"⚙️ Sin ajustes: {lambda_l:.2f} vs {lambda_v:.2f} → Con ajustes: {lambda_l_aj:.2f} vs {lambda_v_aj:.2f}")
-
             st.divider()
             st.markdown("### 🔗 Probabilidades de resultado")
             col1, col2, col3 = st.columns(3)
@@ -255,7 +241,6 @@ if equipo_local != equipo_visitante:
             with col3:
                 st.metric(f"✈️ {equipo_visitante[:12]}", f"{prob_v*100:.1f}%")
                 st.progress(float(prob_v))
-
             st.divider()
             st.subheader("🏆 Top 5 Marcadores más probables")
             resultados = [{"Marcador": f"{i} - {j}", "Probabilidad": f"{matriz[i][j]*100:.1f}%",
